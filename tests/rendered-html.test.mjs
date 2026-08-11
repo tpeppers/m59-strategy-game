@@ -201,6 +201,27 @@ test("selected units can opt into independent DUM strategies", async () => {
   assert.doesNotMatch(route, /callBrokerTool\("leave"|account|password|credentials/);
 });
 
+test("fleet tabs expose DUM interventions, keeper clocks, and drop-aware vault settings", async () => {
+  const [page, observability, drops, fleetPage, broker, css] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/api/observability/route.ts", root), "utf8"),
+    readFile(new URL("app/api/drop-sources/route.ts", root), "utf8"),
+    readFile(new URL("app/fleet/page.tsx", root), "utf8"),
+    readFile(new URL("lib/m59-broker.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(page, /DUM bot/);
+  assert.match(page, /Keeper time by unit/);
+  assert.match(page, /type="text" value=\{value\} list="known-drop-items"/);
+  assert.match(page, /farmed-drop/);
+  assert.match(observability, /\/observability/);
+  assert.match(drops, /callBrokerTool\("drop_sources"/);
+  assert.match(fleetPage, /default.*from "\.\.\/page"/);
+  assert.match(broker, /fighting_s/);
+  assert.match(css, /\.telemetry-workspace/);
+  assert.match(css, /\.room-monster-marker\.farmed-drop/);
+});
+
 test("the entire fleet control plane is bound and gated to localhost", async () => {
   const [vite, worker] = await Promise.all([
     readFile(new URL("vite.config.ts", root), "utf8"),

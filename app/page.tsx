@@ -34,6 +34,14 @@ type FleetUnit = {
   stalled: string | boolean | null;
   strategy: string | null;
   needs_operator: boolean | string | null;
+  time: {
+    fighting_s: number;
+    recovering_s: number;
+    travelling_s: number;
+    trading_s: number;
+    stalled_s: number;
+    active_s: number;
+  } | null;
   autopilot: {
     mode?: string;
     running?: boolean;
@@ -63,10 +71,11 @@ type DumStrategy = {
   settings?: Array<{
     id: string;
     title: string;
-    type: "number" | "integer" | "boolean";
+    type: "number" | "integer" | "boolean" | "item-list";
     min?: number;
     max?: number;
-    default: number | boolean;
+    default: number | boolean | string[];
+    max_items?: number;
     description: string;
   }>;
 };
@@ -75,9 +84,33 @@ type DumStrategyState = {
   state: "all" | "some" | "none";
   enabled: number;
   total: number;
-  settings: Record<string, number | boolean>;
+  settings: Record<string, number | boolean | string[]>;
   mixed_settings: string[];
 };
+
+type DumMetrics = {
+  since: number | null;
+  through: number | null;
+  ticks: number;
+  character_ticks: number;
+  fleet_ticks: number;
+  interventions_triggered: number;
+  interventions_applied: number;
+  interventions_no_change: number;
+  verification_failures: number;
+  findings: number;
+  errors: number;
+  by_rule: Array<{ name: string; count: number }>;
+  by_kind: Array<{ name: string; count: number }>;
+};
+
+type DropSource = {
+  creature: string;
+  level?: number | null;
+  per_roll_percent?: number | null;
+};
+
+type FleetView = "command" | "dum" | "harness";
 
 type StrategyResponse = {
   catalogue?: DumStrategy[];
@@ -351,6 +384,15 @@ function timeLabel(iso: string | null) {
   }).format(new Date(iso));
 }
 
+function durationLabel(totalSeconds: number) {
+  const seconds = Math.max(0, Math.round(totalSeconds || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
 function svgPoint(svg: SVGSVGElement, clientX: number, clientY: number) {
   const matrix = svg.getScreenCTM();
   if (!matrix) return null;
@@ -427,6 +469,7 @@ function savedGroups(value: unknown): UnitGroup[] {
 }
 
 export default function Home() {
+  const [fleetView, setFleetView] = useState<FleetView>("command");
   const [companyName, setCompanyName] = useState(DEFAULT_COMPANY_NAME);
   const [companyNameDraft, setCompanyNameDraft] = useState(DEFAULT_COMPANY_NAME);
   const [editingCompanyName, setEditingCompanyName] = useState(false);
@@ -449,10 +492,14 @@ export default function Home() {
   const [strategyStates, setStrategyStates] = useState<Record<string, DumStrategyState>>({});
   const [strategyChanges, setStrategyChanges] = useState<Record<string, boolean>>({});
   const [strategySettingDrafts, setStrategySettingDrafts] = useState<Record<string, Record<string, string>>>({});
-  const [strategySettingChanges, setStrategySettingChanges] = useState<Record<string, Record<string, number | boolean>>>({});
+  const [strategySettingChanges, setStrategySettingChanges] = useState<Record<string, Record<string, number | boolean | string[]>>>({});
   const [strategyLoading, setStrategyLoading] = useState(false);
   const [strategySaving, setStrategySaving] = useState(false);
   const [strategyError, setStrategyError] = useState<string | null>(null);
+  const [dumMetrics, setDumMetrics] = useState<DumMetrics | null>(null);
+  const [dumMetricsError, setDumMetricsError] = useState<string | null>(null);
+  const [knownDropItems, setKnownDropItems] = useState<string[]>([]);
+  const [dropSources, setDropSources] = useState<Record<string, DropSource[]>>({});
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [worldMap, setWorldMap] = useState<WorldMapData | null>(null);
   const [worldScope, setWorldScope] = useState<"company" | "all">("all");
@@ -567,6 +614,30 @@ export default function Home() {
     const timer = window.setInterval(() => void refresh(true), 10000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    if (fleetView !== "dum") return;
+    let active = true;
+    const readMetrics = async () => {
+      try {
+        const response = await fetch("/api/observability", { cache: "no-store" });
+        const result = await response.json() as { metrics?: DumMetrics | null; error?: string };
+        if (!response.ok || !result.metrics) throw new Error(result.error || "DUM observability is unavailable");
+        if (active) {
+          setDumMetrics(result.metrics);
+          setDumMetricsError(null);
+        }
+      } catch (error) {
+        if (active) setDumMetricsError(error instanceof Error ? error.message : "DUM observability is unavailable");
+      }
+    };
+    void readMetrics();
+    const timer = window.setInterval(() => void readMetrics(), 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [fleetView]);
 
   useEffect(() => {
     const activeGroups = groups.filter((group) => group.active);
@@ -1795,12 +1866,38 @@ export default function Home() {
       setStrategySettingDrafts(Object.fromEntries((result.catalogue || []).map((strategy) =>
         [strategy.id, Object.fromEntries((strategy.settings || []).map((setting) => {
           const value = result.states?.[strategy.id]?.settings?.[setting.id];
-          return [setting.id, value === undefined ? "" : String(value)];
+          return [setting.id, value === undefined ? "" : Array.isArray(value) ? value.join(", ") : String(value)];
         }))])));
+      const vaultItems = result.states?.["accumulate-in-vault"]?.settings?.items;
+      if (Array.isArray(vaultItems)) void updateDropSources(vaultItems.join(", "));
+      const drops = await fetch("/api/drop-sources", { cache: "no-store" });
+      if (drops.ok) {
+        const dropResult = await drops.json() as { items?: string[] };
+        setKnownDropItems(dropResult.items || []);
+      }
     } catch (error) {
       setStrategyError(error instanceof Error ? error.message : "DUM strategy control is unavailable");
     } finally {
       setStrategyLoading(false);
+    }
+  }
+
+  async function updateDropSources(raw: string) {
+    const items = [...new Set(raw.split(",").map(item => item.trim()).filter(Boolean))].slice(0, 24);
+    if (!items.length) {
+      setDropSources({});
+      return;
+    }
+    try {
+      const query = new URLSearchParams();
+      for (const item of items) query.append("item", item);
+      const response = await fetch(`/api/drop-sources?${query}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const result = await response.json() as { matches?: Array<{ item?: string; sources?: DropSource[] }> };
+      setDropSources(Object.fromEntries((result.matches || []).map(match =>
+        [match.item || "", match.sources || []]).filter(([item]) => item)));
+    } catch {
+      // Drop hints are advisory; strategy editing remains available if metadata is offline.
     }
   }
 
@@ -1819,8 +1916,12 @@ export default function Home() {
     }));
     setStrategySettingChanges((current) => {
       const next = { ...current, [strategy.id]: { ...(current[strategy.id] || {}) } };
-      if (raw === "") delete next[strategy.id][setting.id];
-      else next[strategy.id][setting.id] = setting.type === "boolean" ? raw === "true" : Number(raw);
+      if (setting.type === "item-list") {
+        next[strategy.id][setting.id] = [...new Set(raw.split(",").map(item => item.trim()).filter(Boolean))];
+        void updateDropSources(raw);
+      } else if (raw === "") delete next[strategy.id][setting.id];
+      else if (setting.type === "boolean") next[strategy.id][setting.id] = raw === "true";
+      else next[strategy.id][setting.id] = Number(raw);
       if (!Object.keys(next[strategy.id]).length) delete next[strategy.id];
       return next;
     });
@@ -1923,6 +2024,13 @@ export default function Home() {
   }
 
   const workingCount = (data?.fleet || []).filter(unitWorking).length;
+  const harnessTotals = (data?.fleet || []).reduce((totals, unit) => {
+    for (const key of Object.keys(totals) as Array<keyof typeof totals>)
+      totals[key] += unit.time?.[key] || 0;
+    return totals;
+  }, { fighting_s: 0, recovering_s: 0, travelling_s: 0, trading_s: 0, stalled_s: 0, active_s: 0 });
+  const highlightedMonsterNames = new Set(Object.values(dropSources).flat()
+    .map(source => source.creature.trim().toLowerCase()));
   const allVisibleSelected =
     visibleUnits.length > 0 && visibleUnits.every((unit) => selection.includes(unit.agent));
 
@@ -1978,7 +2086,13 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="workspace">
+      <nav className="fleet-view-tabs" aria-label="Fleet management views">
+        {([['command', 'Command'], ['dum', 'DUM bot'], ['harness', 'Harness']] as Array<[FleetView, string]>).map(([id, label]) => (
+          <button key={id} className={fleetView === id ? "active" : ""} onClick={() => setFleetView(id)}>{label}</button>
+        ))}
+      </nav>
+
+      <section className={`workspace ${fleetView !== "command" ? "workspace-hidden" : ""}`}>
         <aside className="roster-panel panel-frame">
           <div className="panel-title-row">
             <div>
@@ -2529,7 +2643,7 @@ export default function Home() {
                 ) : null}
                 <g className="room-monsters">
                   {showMonsterLayer ? roomMonsterMarkers.map((marker) => (
-                    <g key={marker.id} className="room-monster-marker">
+                    <g key={marker.id} className={`room-monster-marker ${highlightedMonsterNames.has(marker.name.trim().toLowerCase()) ? "farmed-drop" : ""}`}>
                       <circle className="room-monster-halo" cx={marker.x} cy={marker.y} r="8" />
                       <circle className="room-monster-dot" cx={marker.x} cy={marker.y} r="4.5" />
                       <line x1={marker.x - 4} y1={marker.y + 4} x2={marker.labelX} y2={marker.labelY + 4} />
@@ -2702,6 +2816,60 @@ export default function Home() {
         </aside>
       </section>
 
+      {fleetView === "dum" ? (
+        <section className="telemetry-workspace" aria-label="DUM bot observability">
+          <div className="telemetry-heading">
+            <div><p className="eyebrow">Rule engine interventions</p><h2>DUM bot</h2></div>
+            <span>{dumMetrics?.since ? `Current process since ${new Date(dumMetrics.since).toLocaleTimeString()}` : "Waiting for DUM"}</span>
+          </div>
+          {dumMetricsError ? <div className="telemetry-error">{dumMetricsError}</div> : null}
+          <div className="metric-cards">
+            <article><span>Triggered</span><strong>{dumMetrics?.interventions_triggered ?? "—"}</strong></article>
+            <article><span>Applied</span><strong>{dumMetrics?.interventions_applied ?? "—"}</strong></article>
+            <article><span>No change</span><strong>{dumMetrics?.interventions_no_change ?? "—"}</strong></article>
+            <article><span>Verify failures</span><strong>{dumMetrics?.verification_failures ?? "—"}</strong></article>
+            <article><span>Findings</span><strong>{dumMetrics?.findings ?? "—"}</strong></article>
+            <article><span>Errors</span><strong>{dumMetrics?.errors ?? "—"}</strong></article>
+          </div>
+          <div className="telemetry-columns">
+            <article className="telemetry-panel">
+              <h3>Interventions by rule</h3>
+              {(dumMetrics?.by_rule || []).map(row => <div className="metric-row" key={row.name}><span>{row.name}</span><strong>{row.count}</strong></div>)}
+              {!dumMetrics?.by_rule?.length ? <p>No intervention has triggered in this DUM process yet.</p> : null}
+            </article>
+            <article className="telemetry-panel">
+              <h3>Interventions by action</h3>
+              {(dumMetrics?.by_kind || []).map(row => <div className="metric-row" key={row.name}><span>{row.name}</span><strong>{row.count}</strong></div>)}
+              {!dumMetrics?.by_kind?.length ? <p>Actions will appear as rules intervene.</p> : null}
+            </article>
+          </div>
+        </section>
+      ) : fleetView === "harness" ? (
+        <section className="telemetry-workspace" aria-label="Harness keeper activity">
+          <div className="telemetry-heading">
+            <div><p className="eyebrow">Keeper activity clock</p><h2>Harness</h2></div>
+            <span>Current broker session · {data?.fleet.length || 0} units</span>
+          </div>
+          <div className="metric-cards activity-cards">
+            {([['fighting_s', 'Fighting'], ['recovering_s', 'Recovering'], ['travelling_s', 'Travelling'], ['trading_s', 'Trading'], ['stalled_s', 'Stalled'], ['active_s', 'Active']] as const).map(([key, label]) => (
+              <article key={key}><span>{label}</span><strong>{durationLabel(harnessTotals[key])}</strong></article>
+            ))}
+          </div>
+          <article className="telemetry-panel keeper-table-panel">
+            <h3>Keeper time by unit</h3>
+            <div className="keeper-table" role="table">
+              <div className="keeper-table-head" role="row"><span>Unit</span><span>Fight</span><span>Recover</span><span>Travel</span><span>Trade</span><span>Stalled</span></div>
+              {(data?.fleet || []).map(unit => <div className="keeper-table-row" role="row" key={unit.agent}>
+                <strong>{unit.character}</strong>
+                <span>{durationLabel(unit.time?.fighting_s || 0)}</span><span>{durationLabel(unit.time?.recovering_s || 0)}</span>
+                <span>{durationLabel(unit.time?.travelling_s || 0)}</span><span>{durationLabel(unit.time?.trading_s || 0)}</span>
+                <span>{durationLabel(unit.time?.stalled_s || 0)}</span>
+              </div>)}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
       {pendingAction ? (
         <div className="order-overlay" role="presentation" onMouseDown={() => !issuing && setPendingAction(null)}>
           <section className="order-sheet" role="dialog" aria-modal="true" aria-labelledby="order-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -2781,6 +2949,17 @@ export default function Home() {
                                         {mixed || value === "" ? <option value="">Mixed</option> : null}
                                         <option value="true">On</option><option value="false">Off</option>
                                       </select>
+                                    ) : setting.type === "item-list" ? (
+                                      <div className="item-list-setting">
+                                        <input type="text" value={value} list="known-drop-items" disabled={state === "none"}
+                                          placeholder="inky cap mushroom, dark angel feather"
+                                          onChange={(event) => changeStrategySetting(strategy, setting, event.target.value)} />
+                                        {Object.entries(dropSources).map(([item, sources]) => sources.length ? (
+                                          <div className="drop-highlights" key={item}><small>{item} drops from</small>
+                                            <span>{sources.map(source => <b key={`${item}:${source.creature}`}>{source.creature}</b>)}</span>
+                                          </div>
+                                        ) : null)}
+                                      </div>
                                     ) : (
                                       <input type="number" value={value} min={setting.min} max={setting.max}
                                         step={setting.type === "integer" ? 1 : "any"} disabled={state === "none"}
@@ -2804,6 +2983,7 @@ export default function Home() {
               {selectedUnits.slice(0, 8).map((unit) => <span key={unit.agent}><i>{initials(unit.character)}</i>{unit.character}</span>)}
               {selectedUnits.length > 8 ? <span>+{selectedUnits.length - 8} more</span> : null}
             </div>
+            <datalist id="known-drop-items">{knownDropItems.map(item => <option key={item} value={item} />)}</datalist>
             <div className="order-actions">
               <button className="secondary-button" onClick={() => setStrategySheetOpen(false)} disabled={strategySaving}>Cancel</button>
               <button className="primary-button" onClick={() => void saveStrategies()} disabled={strategySaving || strategyLoading || Boolean(strategyError)}>

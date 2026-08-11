@@ -34,6 +34,14 @@ export type FleetUnit = {
   stalled: string | boolean | null;
   strategy: string | null;
   needs_operator: boolean | string | null;
+  time: {
+    fighting_s: number;
+    recovering_s: number;
+    travelling_s: number;
+    trading_s: number;
+    stalled_s: number;
+    active_s: number;
+  } | null;
   autopilot: {
     mode?: string;
     running?: boolean;
@@ -146,6 +154,16 @@ export function toSafeFleetUnit(value: unknown): FleetUnit | null {
       typeof row.needs_operator === "boolean"
         ? row.needs_operator
         : null,
+    time: row.time && typeof row.time === "object"
+      ? {
+          fighting_s: nullableNumber((row.time as JsonObject).fighting_s) || 0,
+          recovering_s: nullableNumber((row.time as JsonObject).recovering_s) || 0,
+          travelling_s: nullableNumber((row.time as JsonObject).travelling_s) || 0,
+          trading_s: nullableNumber((row.time as JsonObject).trading_s) || 0,
+          stalled_s: nullableNumber((row.time as JsonObject).stalled_s) || 0,
+          active_s: nullableNumber((row.time as JsonObject).active_s) || 0,
+        }
+      : null,
     autopilot: autopilot
       ? {
           mode: nullableString(autopilot.mode) || undefined,
@@ -158,4 +176,3 @@ export function toSafeFleetUnit(value: unknown): FleetUnit | null {
       : null,
   };
 }
-

@@ -41,6 +41,12 @@ The initial command set is:
 - **Form Group** -> save a named local group with a leader and editable formation
 - **Formation keeper** -> stop individual autopilots, follow the leader between
   zones, and use short `walk_to` corrections to hold each rotated slot offset
+- **Set Strategy** -> toggle independent DUM behaviors for selected units, including
+  multi-item vault accumulation with compendium-derived monster drop highlights
+
+The `/fleet` view has three tabs. **Command** is the map and roster surface, **DUM
+bot** counts current-process rule interventions and verification outcomes, and
+**Harness** totals keeper time by activity category for the current broker session.
 
 Meridian has no server-side party or formation object. Groups are therefore a
 localhost command-post convention: their definitions persist in browser storage,

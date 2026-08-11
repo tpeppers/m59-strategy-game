@@ -49,14 +49,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "Choose between 1 and 40 fleet members" }, { status: 400 });
     const changes = Object.fromEntries(Object.entries(payload.changes || {}).filter(([, value]) =>
       typeof value === "boolean"));
-    const settings: Record<string, Record<string, number | boolean>> = {};
+    const settings: Record<string, Record<string, number | boolean | string[]>> = {};
     for (const [strategy, values] of Object.entries(payload.settings || {})) {
       if (!/^[a-z0-9-]{1,64}$/.test(strategy)) continue;
-      const clean: Record<string, number | boolean> = {};
+      const clean: Record<string, number | boolean | string[]> = {};
       for (const [key, value] of Object.entries(values || {}))
         if (/^[a-z0-9_]{1,64}$/.test(key) &&
-            (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))))
-          clean[key] = value;
+            (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value)) ||
+             (Array.isArray(value) && value.length <= 24 && value.every(item =>
+               typeof item === "string" && item.trim().length > 0 && item.length <= 80))))
+          clean[key] = Array.isArray(value) ? [...new Set(value.map(item => item.trim()))] : value;
       if (Object.keys(clean).length) settings[strategy] = clean;
     }
     if (!Object.keys(changes).length && !Object.keys(settings).length)
