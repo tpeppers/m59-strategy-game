@@ -406,7 +406,11 @@ function savedGroups(value: unknown): UnitGroup[] {
       slots: completeSlots
         ? slots.map((slot) => ({ agent: slot.agent, dx: slot.dx, dy: slot.dy }))
         : buildFormationSlots("conga", agents, leader, 1),
-      active: row.active === true,
+      // A formation is a live command lease, not a preference. Keep its membership and
+      // geometry across reloads, but require a fresh operator click before the page may
+      // resume five-second movement ticks. Persisting `active:true` let an old browser
+      // tab keep stopping DUM-controlled units hours after the formation was relevant.
+      active: false,
     }];
   });
 }

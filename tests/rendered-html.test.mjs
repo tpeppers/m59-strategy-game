@@ -152,6 +152,7 @@ test("releasing a formation invalidates stale ticks and hard-stops old movement"
   assert.match(page, /formationTickAbort\.current\?\.abort\(\)/);
   assert.match(page, /sendFormationRelease/);
   assert.match(page, /window\.addEventListener\("storage", synchronizeGroups\)/);
+  assert.match(page, /A formation is a live command lease, not a preference/);
   assert.match(route, /formationIsEngaged/);
   assert.match(route, /callBrokerTool\("cancel_movement"/);
   assert.match(route, /control_token/);
