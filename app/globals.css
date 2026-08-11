@@ -386,17 +386,24 @@ button { color: inherit; }
 .strategy-group-title { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #39443d; background: #1d2520; }
 .strategy-group-title span { color: var(--bronze-bright); font-family: Georgia, serif; font-size: 12px; }
 .strategy-group-title small { overflow: hidden; color: #768078; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
-.strategy-option { width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 12px; border: 0; border-bottom: 1px solid #2c342f; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.strategy-option { width: 100%; border: 0; border-bottom: 1px solid #2c342f; background: transparent; color: var(--ink); text-align: left; }
 .strategy-option:last-child { border-bottom: 0; }
-.strategy-option:hover { background: rgba(104,166,119,.07); }
-.strategy-option > i { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #566259; background: #171c19; color: #b7e7c2; font-size: 12px; font-style: normal; }
-.strategy-option.all > i { border-color: #77a884; background: #294032; }
-.strategy-option.some > i { border-color: var(--bronze); color: var(--bronze-bright); }
-.strategy-option > span { min-width: 0; display: flex; flex-direction: column; }
-.strategy-option strong { font-family: Georgia, serif; font-size: 12px; font-weight: 500; }
-.strategy-option small { margin-top: 2px; color: #89b695; font-size: 7px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.strategy-option em { margin-top: 6px; color: var(--muted); font-size: 9px; font-style: normal; line-height: 1.45; }
-.strategy-option b { margin-top: 6px; color: #777f78; font-size: 7px; font-weight: 500; line-height: 1.35; }
+.strategy-toggle { width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 12px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.strategy-toggle:hover { background: rgba(104,166,119,.07); }
+.strategy-toggle > i { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #566259; background: #171c19; color: #b7e7c2; font-size: 12px; font-style: normal; }
+.strategy-option.all .strategy-toggle > i { border-color: #77a884; background: #294032; }
+.strategy-option.some .strategy-toggle > i { border-color: var(--bronze); color: var(--bronze-bright); }
+.strategy-toggle > span { min-width: 0; display: flex; flex-direction: column; }
+.strategy-toggle strong { font-family: Georgia, serif; font-size: 12px; font-weight: 500; }
+.strategy-toggle small { margin-top: 2px; color: #89b695; font-size: 7px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.strategy-toggle em { margin-top: 6px; color: var(--muted); font-size: 9px; font-style: normal; line-height: 1.45; }
+.strategy-toggle b { margin-top: 6px; color: #777f78; font-size: 7px; font-weight: 500; line-height: 1.35; }
+.strategy-settings { display: grid; gap: 7px; padding: 0 12px 12px 45px; }
+.strategy-settings label { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 10px; }
+.strategy-settings label > span { color: #a8b3aa; font-size: 8px; font-weight: 700; }
+.strategy-settings label > span small { display: block; margin-top: 2px; color: #667069; font-size: 7px; font-weight: 400; line-height: 1.35; text-transform: none; }
+.strategy-settings input, .strategy-settings select { min-width: 0; height: 28px; border: 1px solid #465149; background: #101411; color: var(--ink); padding: 0 7px; font: inherit; font-size: 9px; }
+.strategy-settings input:disabled, .strategy-settings select:disabled { opacity: .38; cursor: not-allowed; }
 
 @media (max-width: 1120px) {
   .workspace { grid-template-columns: 260px minmax(440px, 1fr); }

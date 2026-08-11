@@ -39,18 +39,32 @@ export async function POST(request: Request) {
   if (!isLocalCommandRequest(request, true))
     return Response.json({ error: "Strategies may be changed only from the local command post." }, { status: 403 });
   try {
-    const payload = await request.json() as { agents?: unknown[]; changes?: Record<string, unknown> };
+    const payload = await request.json() as {
+      agents?: unknown[];
+      changes?: Record<string, unknown>;
+      settings?: Record<string, Record<string, unknown>>;
+    };
     const agents = selectedAgents(payload.agents || []);
     if (!agents.length || agents.length > 40)
       return Response.json({ error: "Choose between 1 and 40 fleet members" }, { status: 400 });
     const changes = Object.fromEntries(Object.entries(payload.changes || {}).filter(([, value]) =>
       typeof value === "boolean"));
-    if (!Object.keys(changes).length)
-      return Response.json({ error: "Choose at least one strategy change" }, { status: 400 });
+    const settings: Record<string, Record<string, number | boolean>> = {};
+    for (const [strategy, values] of Object.entries(payload.settings || {})) {
+      if (!/^[a-z0-9-]{1,64}$/.test(strategy)) continue;
+      const clean: Record<string, number | boolean> = {};
+      for (const [key, value] of Object.entries(values || {}))
+        if (/^[a-z0-9_]{1,64}$/.test(key) &&
+            (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))))
+          clean[key] = value;
+      if (Object.keys(clean).length) settings[strategy] = clean;
+    }
+    if (!Object.keys(changes).length && !Object.keys(settings).length)
+      return Response.json({ error: "Choose at least one strategy or setting change" }, { status: 400 });
     return Response.json(await dum("/strategies", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ agents, changes }),
+      body: JSON.stringify({ agents, changes, settings }),
     }));
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "DUM strategy control is unavailable" },

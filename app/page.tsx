@@ -60,12 +60,23 @@ type DumStrategy = {
   purpose: string;
   requirements: string[];
   description: string;
+  settings?: Array<{
+    id: string;
+    title: string;
+    type: "number" | "integer" | "boolean";
+    min?: number;
+    max?: number;
+    default: number | boolean;
+    description: string;
+  }>;
 };
 
 type DumStrategyState = {
   state: "all" | "some" | "none";
   enabled: number;
   total: number;
+  settings: Record<string, number | boolean>;
+  mixed_settings: string[];
 };
 
 type StrategyResponse = {
@@ -437,6 +448,8 @@ export default function Home() {
   const [strategyCatalogue, setStrategyCatalogue] = useState<DumStrategy[]>([]);
   const [strategyStates, setStrategyStates] = useState<Record<string, DumStrategyState>>({});
   const [strategyChanges, setStrategyChanges] = useState<Record<string, boolean>>({});
+  const [strategySettingDrafts, setStrategySettingDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [strategySettingChanges, setStrategySettingChanges] = useState<Record<string, Record<string, number | boolean>>>({});
   const [strategyLoading, setStrategyLoading] = useState(false);
   const [strategySaving, setStrategySaving] = useState(false);
   const [strategyError, setStrategyError] = useState<string | null>(null);
@@ -1770,6 +1783,7 @@ export default function Home() {
     setStrategyLoading(true);
     setStrategyError(null);
     setStrategyChanges({});
+    setStrategySettingChanges({});
     try {
       const query = new URLSearchParams();
       for (const agent of selection) query.append("agent", agent);
@@ -1778,6 +1792,11 @@ export default function Home() {
       if (!response.ok) throw new Error(result.error || "DUM strategy control is unavailable");
       setStrategyCatalogue(result.catalogue || []);
       setStrategyStates(result.states || {});
+      setStrategySettingDrafts(Object.fromEntries((result.catalogue || []).map((strategy) =>
+        [strategy.id, Object.fromEntries((strategy.settings || []).map((setting) => {
+          const value = result.states?.[strategy.id]?.settings?.[setting.id];
+          return [setting.id, value === undefined ? "" : String(value)];
+        }))])));
     } catch (error) {
       setStrategyError(error instanceof Error ? error.message : "DUM strategy control is unavailable");
     } finally {
@@ -1793,8 +1812,24 @@ export default function Home() {
     } }));
   }
 
+  function changeStrategySetting(strategy: DumStrategy,
+    setting: NonNullable<DumStrategy["settings"]>[number], raw: string) {
+    setStrategySettingDrafts((current) => ({ ...current,
+      [strategy.id]: { ...(current[strategy.id] || {}), [setting.id]: raw },
+    }));
+    setStrategySettingChanges((current) => {
+      const next = { ...current, [strategy.id]: { ...(current[strategy.id] || {}) } };
+      if (raw === "") delete next[strategy.id][setting.id];
+      else next[strategy.id][setting.id] = setting.type === "boolean" ? raw === "true" : Number(raw);
+      if (!Object.keys(next[strategy.id]).length) delete next[strategy.id];
+      return next;
+    });
+  }
+
   async function saveStrategies() {
-    if (!selection.length || !Object.keys(strategyChanges).length) {
+    const changedSettings = Object.values(strategySettingChanges).reduce((n, values) =>
+      n + Object.keys(values).length, 0);
+    if (!selection.length || (!Object.keys(strategyChanges).length && !changedSettings)) {
       setStrategySheetOpen(false);
       return;
     }
@@ -1804,17 +1839,18 @@ export default function Home() {
       const response = await fetch("/api/strategies", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agents: selection, changes: strategyChanges }),
+        body: JSON.stringify({ agents: selection, changes: strategyChanges, settings: strategySettingChanges }),
       });
       const result = await response.json() as StrategyResponse;
       if (!response.ok) throw new Error(result.error || "Strategy changes were refused");
       setActivity((current) => [{
         id: crypto.randomUUID(), kind: "success", title: "DUM strategies updated",
-        detail: `${selection.length} selected ${selection.length === 1 ? "unit" : "units"} · ${Object.keys(strategyChanges).length} behavior ${Object.keys(strategyChanges).length === 1 ? "toggle" : "toggles"}`,
+        detail: `${selection.length} selected ${selection.length === 1 ? "unit" : "units"} · ${Object.keys(strategyChanges).length} toggles · ${changedSettings} settings`,
         time: "now",
       }, ...current]);
       setStrategySheetOpen(false);
       setStrategyChanges({});
+      setStrategySettingChanges({});
     } catch (error) {
       setStrategyError(error instanceof Error ? error.message : "DUM strategy control is unavailable");
     } finally {
@@ -2720,21 +2756,43 @@ export default function Home() {
                     {strategies.map((strategy) => {
                       const state = strategyStates[strategy.id]?.state || "none";
                       return (
-                        <button
-                          type="button"
-                          key={strategy.id}
-                          className={`strategy-option ${state}`}
-                          aria-pressed={state === "all"}
-                          onClick={() => toggleStrategy(strategy)}
-                        >
-                          <i aria-hidden="true">{state === "all" ? "✓" : state === "some" ? "—" : ""}</i>
-                          <span>
-                            <strong>{strategy.title}</strong>
-                            <small>{strategy.purpose}</small>
-                            <em>{strategy.description}</em>
-                            <b>{strategy.requirements.join(" · ")}</b>
-                          </span>
-                        </button>
+                        <div key={strategy.id} className={`strategy-option ${state}`}>
+                          <button type="button" className="strategy-toggle" aria-pressed={state === "all"}
+                            onClick={() => toggleStrategy(strategy)}>
+                            <i aria-hidden="true">{state === "all" ? "✓" : state === "some" ? "—" : ""}</i>
+                            <span>
+                              <strong>{strategy.title}</strong>
+                              <small>{strategy.purpose}</small>
+                              <em>{strategy.description}</em>
+                              <b>{strategy.requirements.join(" · ")}</b>
+                            </span>
+                          </button>
+                          {strategy.settings?.length ? (
+                            <div className="strategy-settings" aria-label={`${strategy.title} settings`}>
+                              {strategy.settings.map((setting) => {
+                                const mixed = strategyStates[strategy.id]?.mixed_settings?.includes(setting.id);
+                                const value = strategySettingDrafts[strategy.id]?.[setting.id] ?? "";
+                                return (
+                                  <label key={setting.id}>
+                                    <span>{setting.title}<small>{setting.description}</small></span>
+                                    {setting.type === "boolean" ? (
+                                      <select value={value} disabled={state === "none"}
+                                        onChange={(event) => changeStrategySetting(strategy, setting, event.target.value)}>
+                                        {mixed || value === "" ? <option value="">Mixed</option> : null}
+                                        <option value="true">On</option><option value="false">Off</option>
+                                      </select>
+                                    ) : (
+                                      <input type="number" value={value} min={setting.min} max={setting.max}
+                                        step={setting.type === "integer" ? 1 : "any"} disabled={state === "none"}
+                                        placeholder={mixed ? "Mixed" : String(setting.default)}
+                                        onChange={(event) => changeStrategySetting(strategy, setting, event.target.value)} />
+                                    )}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
                       );
                     })}
                   </section>
@@ -2749,7 +2807,7 @@ export default function Home() {
             <div className="order-actions">
               <button className="secondary-button" onClick={() => setStrategySheetOpen(false)} disabled={strategySaving}>Cancel</button>
               <button className="primary-button" onClick={() => void saveStrategies()} disabled={strategySaving || strategyLoading || Boolean(strategyError)}>
-                {strategySaving ? "Saving…" : Object.keys(strategyChanges).length ? "Apply strategy changes" : "Done"}
+                {strategySaving ? "Saving…" : Object.keys(strategyChanges).length || Object.keys(strategySettingChanges).length ? "Apply strategy changes" : "Done"}
               </button>
             </div>
           </section>

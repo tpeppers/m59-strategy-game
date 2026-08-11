@@ -189,11 +189,15 @@ test("selected units can opt into independent DUM strategies", async () => {
   assert.match(page, /strategyGroups/);
   assert.match(page, /Mixed means only part/);
   assert.match(page, /requirements\.join/);
+  assert.match(page, /strategySettingChanges/);
+  assert.match(page, /type="number"/);
+  assert.match(route, /settings/);
   assert.match(route, /M59_DUM_CONTROL_URL/);
   assert.match(route, /127\.0\.0\.1:8916/);
   assert.match(route, /isLocalCommandRequest\(request, true\)/);
   assert.match(css, /\.strategy-group/);
   assert.match(css, /\.strategy-option\.some/);
+  assert.match(css, /\.strategy-settings/);
   assert.doesNotMatch(route, /callBrokerTool\("leave"|account|password|credentials/);
 });
 
