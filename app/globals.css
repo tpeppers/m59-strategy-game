@@ -116,8 +116,8 @@ button { color: inherit; }
 .metric-row span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .metric-row strong { color: var(--green-bright); text-align: right; font-size: 11px; }
 .keeper-table-panel { max-width: 1180px; margin: 0 auto; }
-.keeper-table { min-width: 650px; }
-.keeper-table-head, .keeper-table-row { display: grid; grid-template-columns: minmax(150px, 1.6fr) repeat(5, minmax(70px, 1fr)); gap: 10px; align-items: center; padding: 9px 8px; border-top: 1px solid #2c342f; }
+.keeper-table { min-width: 820px; }
+.keeper-table-head, .keeper-table-row { display: grid; grid-template-columns: minmax(150px, 1.6fr) repeat(7, minmax(70px, 1fr)); gap: 10px; align-items: center; padding: 9px 8px; border-top: 1px solid #2c342f; }
 .keeper-table-head { color: var(--bronze); font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .keeper-table-row { color: var(--muted); font-size: 9px; }
 .keeper-table-row strong { color: var(--ink); font-family: Georgia, serif; font-size: 11px; font-weight: 500; }

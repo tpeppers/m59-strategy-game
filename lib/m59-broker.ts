@@ -59,6 +59,8 @@ export type FleetUnit = {
   needs_operator: boolean | string | null;
   time: {
     fighting_s: number;
+    pulling_s: number;
+    waiting_s: number;
     recovering_s: number;
     travelling_s: number;
     trading_s: number;
@@ -215,6 +217,8 @@ export function toSafeFleetUnit(value: unknown): FleetUnit | null {
     time: row.time && typeof row.time === "object"
       ? {
           fighting_s: nullableNumber((row.time as JsonObject).fighting_s) || 0,
+          pulling_s: nullableNumber((row.time as JsonObject).pulling_s) || 0,
+          waiting_s: nullableNumber((row.time as JsonObject).waiting_s) || 0,
           recovering_s: nullableNumber((row.time as JsonObject).recovering_s) || 0,
           travelling_s: nullableNumber((row.time as JsonObject).travelling_s) || 0,
           trading_s: nullableNumber((row.time as JsonObject).trading_s) || 0,

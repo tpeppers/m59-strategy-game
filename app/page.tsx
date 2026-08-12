@@ -59,6 +59,8 @@ type FleetUnit = {
   needs_operator: boolean | string | null;
   time: {
     fighting_s: number;
+    pulling_s: number;
+    waiting_s: number;
     recovering_s: number;
     travelling_s: number;
     trading_s: number;
@@ -2100,7 +2102,8 @@ export default function Home() {
     for (const key of Object.keys(totals) as Array<keyof typeof totals>)
       totals[key] += unit.time?.[key] || 0;
     return totals;
-  }, { fighting_s: 0, recovering_s: 0, travelling_s: 0, trading_s: 0, stalled_s: 0, active_s: 0 });
+  }, { fighting_s: 0, pulling_s: 0, waiting_s: 0,
+       recovering_s: 0, travelling_s: 0, trading_s: 0, stalled_s: 0, active_s: 0 });
   const highlightedMonsterNames = new Set(Object.values(dropSources).flat()
     .map(source => source.creature.trim().toLowerCase()));
   const allVisibleSelected =
@@ -2941,17 +2944,18 @@ export default function Home() {
             <span>Current broker session · {data?.fleet.length || 0} units</span>
           </div>
           <div className="metric-cards activity-cards">
-            {([['fighting_s', 'Fighting'], ['recovering_s', 'Recovering'], ['travelling_s', 'Travelling'], ['trading_s', 'Trading'], ['stalled_s', 'Stalled'], ['active_s', 'Active']] as const).map(([key, label]) => (
+            {([['fighting_s', 'Attacking'], ['pulling_s', 'Pulling'], ['waiting_s', 'Waiting'], ['recovering_s', 'Recovering'], ['travelling_s', 'Travelling'], ['trading_s', 'Trading'], ['stalled_s', 'Stalled'], ['active_s', 'Active']] as const).map(([key, label]) => (
               <article key={key}><span>{label}</span><strong>{durationLabel(harnessTotals[key])}</strong></article>
             ))}
           </div>
           <article className="telemetry-panel keeper-table-panel">
             <h3>Keeper time by unit</h3>
             <div className="keeper-table" role="table">
-              <div className="keeper-table-head" role="row"><span>Unit</span><span>Fight</span><span>Recover</span><span>Travel</span><span>Trade</span><span>Stalled</span></div>
+              <div className="keeper-table-head" role="row"><span>Unit</span><span>Attack</span><span>Pull</span><span>Wait</span><span>Recover</span><span>Travel</span><span>Trade</span><span>Stalled</span></div>
               {(data?.fleet || []).map(unit => <div className="keeper-table-row" role="row" key={unit.agent}>
                 <strong>{unit.character}</strong>
-                <span>{durationLabel(unit.time?.fighting_s || 0)}</span><span>{durationLabel(unit.time?.recovering_s || 0)}</span>
+                <span>{durationLabel(unit.time?.fighting_s || 0)}</span><span>{durationLabel(unit.time?.pulling_s || 0)}</span>
+                <span>{durationLabel(unit.time?.waiting_s || 0)}</span><span>{durationLabel(unit.time?.recovering_s || 0)}</span>
                 <span>{durationLabel(unit.time?.travelling_s || 0)}</span><span>{durationLabel(unit.time?.trading_s || 0)}</span>
                 <span>{durationLabel(unit.time?.stalled_s || 0)}</span>
               </div>)}
