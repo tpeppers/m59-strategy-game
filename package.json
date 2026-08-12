@@ -8,10 +8,12 @@
   "scripts": {
     "sync:maps": "node scripts/sync-maps.mjs",
     "predev": "npm run sync:maps",
-    "dev": "vinext dev",
+    "dev": "vinext dev --hostname 127.0.0.1",
     "prebuild": "npm run sync:maps",
     "build": "vinext build",
-    "start": "vinext start",
+    "prestart": "npm run sync:maps",
+    "start": "vinext dev --hostname 127.0.0.1",
+    "smoke:local": "node scripts/smoke-local.mjs",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },

@@ -220,6 +220,18 @@ test("planned learning appears only after a localhost preflight says it is buyab
   assert.doesNotMatch(route, /leave|account|password|credentials/);
 });
 
+test("the Windows localhost server cannot silently serve HTML with missing assets", async () => {
+  const [pkgText, smoke] = await Promise.all([
+    readFile(new URL("package.json", root), "utf8"),
+    readFile(new URL("scripts/smoke-local.mjs", root), "utf8"),
+  ]);
+  const pkg = JSON.parse(pkgText);
+  assert.match(pkg.scripts.start, /vinext dev --hostname 127\.0\.0\.1/);
+  assert.match(pkg.scripts["smoke:local"], /smoke-local\.mjs/);
+  assert.match(smoke, /named no CSS or JavaScript resources/);
+  assert.match(smoke, /local page has missing resources/);
+});
+
 test("fleet tabs expose DUM interventions, keeper clocks, and drop-aware vault settings", async () => {
   const [page, observability, drops, fleetPage, broker, css] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
