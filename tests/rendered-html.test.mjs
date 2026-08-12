@@ -201,6 +201,25 @@ test("selected units can opt into independent DUM strategies", async () => {
   assert.doesNotMatch(route, /callBrokerTool\("leave"|account|password|credentials/);
 });
 
+test("planned learning appears only after a localhost preflight says it is buyable", async () => {
+  const [page, route, brokerAdapter, harnessBroker] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/api/planned-learning/route.ts", root), "utf8"),
+    readFile(new URL("lib/m59-broker.ts", root), "utf8"),
+    readFile(new URL("../m59-harness/tools/m59-broker.mjs", root), "utf8"),
+  ]);
+  assert.match(page, /Buy next planned skills/);
+  assert.match(page, /selectedLearningReady\.length/);
+  assert.match(page, /points to \{unit\.learning\?\.progress\?\.label/);
+  assert.match(route, /isLocalCommandRequest\(request, true\)/);
+  assert.match(route, /callBrokerTool\("buy_next_planned_skills"/);
+  assert.match(brokerAdapter, /expected_buyable/);
+  assert.match(harnessBroker, /name: 'buy_next_planned_skills'/);
+  assert.match(harnessBroker, /RemainingRequiredToLearnNewSkills/);
+  assert.match(harnessBroker, /m59-outfit\.mjs/);
+  assert.doesNotMatch(route, /leave|account|password|credentials/);
+});
+
 test("fleet tabs expose DUM interventions, keeper clocks, and drop-aware vault settings", async () => {
   const [page, observability, drops, fleetPage, broker, css] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),

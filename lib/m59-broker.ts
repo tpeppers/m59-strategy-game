@@ -33,6 +33,29 @@ export type FleetUnit = {
   busy: string | null;
   stalled: string | boolean | null;
   strategy: string | null;
+  learning: {
+    progress: {
+      target: string | null;
+      label: string | null;
+      source: string | null;
+      current_level: number | null;
+      next_level: number | null;
+      points: number | null;
+      ready_to_learn: boolean;
+    } | null;
+    planned: {
+      configured: number;
+      ready: number;
+      next: {
+        name: string;
+        kind: string | null;
+        level: number | null;
+        price: number | null;
+        expected_buyable: boolean;
+        teacher: { name: string | null; room: number | null } | null;
+      } | null;
+    } | null;
+  } | null;
   needs_operator: boolean | string | null;
   time: {
     fighting_s: number;
@@ -127,6 +150,16 @@ export function toSafeFleetUnit(value: unknown): FleetUnit | null {
     row.autopilot && typeof row.autopilot === "object"
       ? (row.autopilot as JsonObject)
       : null;
+  const learning = row.learning && typeof row.learning === "object"
+    ? row.learning as JsonObject : null;
+  const progress = learning?.progress && typeof learning.progress === "object"
+    ? learning.progress as JsonObject : null;
+  const planned = learning?.planned && typeof learning.planned === "object"
+    ? learning.planned as JsonObject : null;
+  const next = planned?.next && typeof planned.next === "object"
+    ? planned.next as JsonObject : null;
+  const teacher = next?.teacher && typeof next.teacher === "object"
+    ? next.teacher as JsonObject : null;
 
   return {
     agent: row.agent,
@@ -149,6 +182,31 @@ export function toSafeFleetUnit(value: unknown): FleetUnit | null {
         ? row.stalled
         : null,
     strategy: nullableString(row.strategy),
+    learning: learning ? {
+      progress: progress ? {
+        target: nullableString(progress.target),
+        label: nullableString(progress.label),
+        source: nullableString(progress.source),
+        current_level: nullableNumber(progress.current_level),
+        next_level: nullableNumber(progress.next_level),
+        points: nullableNumber(progress.points),
+        ready_to_learn: progress.ready_to_learn === true,
+      } : null,
+      planned: planned ? {
+        configured: nullableNumber(planned.configured) || 0,
+        ready: nullableNumber(planned.ready) || 0,
+        next: next && typeof next.name === "string" ? {
+          name: next.name,
+          kind: nullableString(next.kind),
+          level: nullableNumber(next.level),
+          price: nullableNumber(next.price),
+          expected_buyable: next.expected_buyable === true,
+          teacher: teacher ? {
+            name: nullableString(teacher.name), room: nullableNumber(teacher.room),
+          } : null,
+        } : null,
+      } : null,
+    } : null,
     needs_operator:
       typeof row.needs_operator === "string" ||
       typeof row.needs_operator === "boolean"

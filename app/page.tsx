@@ -33,6 +33,29 @@ type FleetUnit = {
   busy: string | null;
   stalled: string | boolean | null;
   strategy: string | null;
+  learning: {
+    progress: {
+      target: string | null;
+      label: string | null;
+      source: string | null;
+      current_level: number | null;
+      next_level: number | null;
+      points: number | null;
+      ready_to_learn: boolean;
+    } | null;
+    planned: {
+      configured: number;
+      ready: number;
+      next: {
+        name: string;
+        kind: string | null;
+        level: number | null;
+        price: number | null;
+        expected_buyable: boolean;
+        teacher: { name: string | null; room: number | null } | null;
+      } | null;
+    } | null;
+  } | null;
   needs_operator: boolean | string | null;
   time: {
     fighting_s: number;
@@ -780,6 +803,11 @@ export default function Home() {
     const selected = new Set(selection);
     return (data?.fleet || []).filter((unit) => selected.has(unit.agent));
   }, [data, selection]);
+
+  const selectedLearningReady = useMemo(
+    () => selectedUnits.filter((unit) => unit.learning?.planned?.next?.expected_buyable),
+    [selectedUnits],
+  );
 
   const strategyGroups = useMemo(() => {
     const groups = new Map<string, DumStrategy[]>();
@@ -1906,6 +1934,7 @@ export default function Home() {
     setStrategyChanges((current) => ({ ...current, [strategy.id]: next }));
     setStrategyStates((current) => ({ ...current, [strategy.id]: {
       state: next ? "all" : "none", enabled: next ? selection.length : 0, total: selection.length,
+      settings: current[strategy.id]?.settings || {}, mixed_settings: [],
     } }));
   }
 
@@ -2018,6 +2047,49 @@ export default function Home() {
         },
         ...current,
       ]);
+    } finally {
+      setIssuing(false);
+    }
+  }
+
+  async function buyNextPlannedSkills() {
+    const agents = selectedLearningReady.map((unit) => unit.agent);
+    if (!agents.length) return;
+    setIssuing(true);
+    setActivity((current) => [{
+      id: crypto.randomUUID(), kind: "order", title: "Planned learning dispatched",
+      detail: selectedLearningReady.map((unit) =>
+        `${unit.character}: ${unit.learning?.planned?.next?.name}`).join(" Â· "),
+      time: "now",
+    }, ...current]);
+    try {
+      const response = await fetch("/api/planned-learning", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agents }),
+      });
+      const result = await response.json() as {
+        error?: string; queued?: number; refused?: number;
+        results?: Array<{ character?: string; ability?: string; price?: number; queued?: boolean; reason?: string }>;
+      };
+      if (!response.ok) throw new Error(result.error || "Planned learning was refused");
+      const queued = result.results?.filter((row) => row.queued) || [];
+      const refused = result.results?.filter((row) => !row.queued) || [];
+      setActivity((current) => [{
+        id: crypto.randomUUID(), kind: refused.length ? "warning" : "success",
+        title: `${queued.length} learning ${queued.length === 1 ? "errand" : "errands"} started`,
+        detail: [
+          ...queued.map((row) => `${row.character}: ${row.ability} (${row.price ?? "?"}sh)`),
+          ...refused.map((row) => `${row.character || "unit"}: ${row.reason || "refused"}`),
+        ].join(" Â· "),
+        time: "now",
+      }, ...current]);
+      window.setTimeout(() => void refresh(true), 1200);
+    } catch (error) {
+      setActivity((current) => [{
+        id: crypto.randomUUID(), kind: "warning", title: "Learning errand could not start",
+        detail: error instanceof Error ? error.message : "Unknown broker response", time: "now",
+      }, ...current]);
     } finally {
       setIssuing(false);
     }
@@ -2176,6 +2248,10 @@ export default function Home() {
                       <small>{unit.agent}</small>
                     </span>
                     <span className="unit-location">{unit.room}</span>
+                    <span className={`unit-learning ${unit.learning?.progress?.points === 0 ? "ready" : ""}`}>
+                      <b>{unit.learning?.progress?.points ?? "?"}</b>
+                      <span>points to {unit.learning?.progress?.label || "next learning level"}</span>
+                    </span>
                     {(groupsByAgent.get(unit.agent) || []).length ? (
                       <span className="unit-groups">
                         {(groupsByAgent.get(unit.agent) || []).map((group) => (
@@ -2765,6 +2841,20 @@ export default function Home() {
               <span>Σ</span>
               <small>Set strategy</small>
             </button>
+            {selectedLearningReady.length ? (
+              <button
+                className="buy-learning-button"
+                onClick={() => void buyNextPlannedSkills()}
+                disabled={issuing || !data?.broker.online}
+                title={selectedLearningReady.map((unit) => {
+                  const next = unit.learning?.planned?.next;
+                  return `${unit.character}: ${next?.name} (${next?.price ?? "?"} shillings)`;
+                }).join(" · ")}
+              >
+                <span>+</span>
+                <small>Buy next planned skills</small>
+              </button>
+            ) : null}
             <div className="order-buttons">
               {ACTIONS.map((action) => (
                 <button

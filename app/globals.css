@@ -156,6 +156,11 @@ button { color: inherit; }
 .unit-name-line strong { font-family: Georgia, serif; font-size: 13px; font-weight: 600; }
 .unit-name-line small { color: #6e756e; font-size: 8px; text-transform: uppercase; }
 .unit-location { overflow: hidden; color: var(--muted); font-size: 9px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.unit-learning { display:flex; align-items:baseline; gap:4px; overflow:hidden; color:#858e85;
+  font-size:7px; line-height:1.5; white-space:nowrap; }
+.unit-learning b { min-width:1.7em; color:var(--bronze-bright); font-size:9px; font-variant-numeric:tabular-nums; }
+.unit-learning.ready b { color:var(--green-bright); }
+.unit-learning span { overflow:hidden; text-overflow:ellipsis; }
 .unit-groups { display: flex; gap: 3px; overflow: hidden; margin-top: 2px; }
 .unit-groups i { padding: 1px 4px; overflow: hidden; border: 1px solid #3d4a42; color: #858e85; font-size: 6px; font-style: normal; letter-spacing: .04em; text-overflow: ellipsis; white-space: nowrap; }
 .unit-groups i.active { border-color: #47765a; color: #92c99f; background: rgba(64, 116, 78, .14); }
@@ -358,6 +363,12 @@ button { color: inherit; }
 .set-strategy-button:disabled { opacity: .3; cursor: not-allowed; }
 .set-strategy-button span { font-family: Georgia, serif; font-size: 18px; line-height: 18px; }
 .set-strategy-button small { margin-top: 4px; font-size: 7px; text-transform: uppercase; white-space: nowrap; }
+.buy-learning-button { height:54px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  border:1px solid #6f6136; background:linear-gradient(180deg,#403821,#2b271a); color:#e7cc79; cursor:pointer; }
+.buy-learning-button:hover:not(:disabled) { border-color:#e7cc79; background:#4a4025; color:#fff0b0; }
+.buy-learning-button:disabled { opacity:.4; cursor:not-allowed; }
+.buy-learning-button span { font:700 18px/18px Georgia,serif; }
+.buy-learning-button small { margin-top:4px; padding:0 6px; font-size:7px; text-transform:uppercase; white-space:nowrap; }
 .order-buttons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
 .order-buttons button { min-width: 0; height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid #424a42; background: linear-gradient(180deg, #2b332d, #202722); cursor: pointer; }
 .order-buttons button:hover:not(:disabled) { border-color: var(--bronze); background: #35382d; color: var(--bronze-bright); }
