@@ -193,6 +193,9 @@ type RoomMapData = {
   transform: { minX: number; minY: number; scale: number; pad: number; fineness: number };
   solidPath: string;
   passagePath: string;
+  // Where the router believes walking cannot get from one side to the other. Not walls in
+  // the world — players walk these rooms — but the places our pathing thinks a wall is.
+  disconnects?: { regions: number; segments: number[][] } | null;
   exits: Array<{
     x: number;
     y: number;
@@ -418,6 +421,15 @@ function durationLabel(totalSeconds: number) {
   return `${seconds}s`;
 }
 
+// SQUARE CENTRES ARE (n - 0.5), NOT (n + 0.5). Room grids are 1-based: square col 1 spans
+// client x [0, 1024) and its centre is 512, so `(col + 0.5)` draws it in the middle of
+// square TWO. Every marker on the local map was one square down-right of the walls it was
+// meant to sit against. The inverse below was wrong the same way, so clicking a marker
+// still picked the right square and only the picture gave it away.
+const SQUARE_CENTRE = (n: number) => n - 0.5;
+// And back: client x in [0, 1024) is square 1, so the inverse takes a +1.
+const SQUARE_AT = (units: number) => Math.floor(units) + 1;
+
 function svgPoint(svg: SVGSVGElement, clientX: number, clientY: number) {
   const matrix = svg.getScreenCTM();
   if (!matrix) return null;
@@ -535,6 +547,9 @@ export default function Home() {
   const [showCompanyLayer, setShowCompanyLayer] = useState(true);
   const [showMonsterLayer, setShowMonsterLayer] = useState(true);
   const [showExitLayer, setShowExitLayer] = useState(true);
+  // OFF BY DEFAULT: this is a diagnostic about our own model, not part of the world, and
+  // a map that always shows it teaches people to read our bugs as terrain.
+  const [showDisconnects, setShowDisconnects] = useState(false);
   const [safeSpotLayers, setSafeSpotLayers] = useState<Record<SafeSpotLayer, boolean>>({
     holds: true,
     failed: true,
@@ -933,11 +948,11 @@ export default function Home() {
       const angle = use * 1.75;
       const labelDistance = 11 + use * 8;
       const x =
-        ((position.col + 0.5) * roomMap.transform.fineness - roomMap.transform.minX) *
+        (SQUARE_CENTRE(position.col) * roomMap.transform.fineness - roomMap.transform.minX) *
           roomMap.transform.scale +
         roomMap.transform.pad;
       const y =
-        ((position.row + 0.5) * roomMap.transform.fineness - roomMap.transform.minY) *
+        (SQUARE_CENTRE(position.row) * roomMap.transform.fineness - roomMap.transform.minY) *
           roomMap.transform.scale +
         roomMap.transform.pad;
       return {
@@ -961,11 +976,11 @@ export default function Home() {
       const angle = 2.35 + index * 1.17 + use * 1.8;
       const labelDistance = 12 + use * 8;
       const x =
-        ((monster.col + 0.5) * roomMap.transform.fineness - roomMap.transform.minX) *
+        (SQUARE_CENTRE(monster.col) * roomMap.transform.fineness - roomMap.transform.minX) *
           roomMap.transform.scale +
         roomMap.transform.pad;
       const y =
-        ((monster.row + 0.5) * roomMap.transform.fineness - roomMap.transform.minY) *
+        (SQUARE_CENTRE(monster.row) * roomMap.transform.fineness - roomMap.transform.minY) *
           roomMap.transform.scale +
         roomMap.transform.pad;
       return {
@@ -984,10 +999,10 @@ export default function Home() {
       const kodToRoomScale = roomMap.transform.fineness / KOD_FINENESS;
       const fineX = spot.exactX != null
         ? spot.exactX * kodToRoomScale
-        : (spot.col + 0.5) * roomMap.transform.fineness;
+        : SQUARE_CENTRE(spot.col) * roomMap.transform.fineness;
       const fineY = spot.exactY != null
         ? spot.exactY * kodToRoomScale
-        : (spot.row + 0.5) * roomMap.transform.fineness;
+        : SQUARE_CENTRE(spot.row) * roomMap.transform.fineness;
       return {
         ...spot,
         x: (fineX - roomMap.transform.minX) * roomMap.transform.scale + roomMap.transform.pad,
@@ -1035,11 +1050,11 @@ export default function Home() {
           agent: slot.agent,
           leader: slot.agent === group.leader,
           x:
-            ((target.col + 0.5) * roomMap.transform.fineness - roomMap.transform.minX) *
+            (SQUARE_CENTRE(target.col) * roomMap.transform.fineness - roomMap.transform.minX) *
               roomMap.transform.scale +
             roomMap.transform.pad,
           y:
-            ((target.row + 0.5) * roomMap.transform.fineness - roomMap.transform.minY) *
+            (SQUARE_CENTRE(target.row) * roomMap.transform.fineness - roomMap.transform.minY) *
               roomMap.transform.scale +
             roomMap.transform.pad,
         };
@@ -1772,7 +1787,7 @@ export default function Home() {
       1,
       Math.min(
         roomMap.cols,
-        Math.floor(
+        SQUARE_AT(
           ((point.x - roomMap.transform.pad) / roomMap.transform.scale + roomMap.transform.minX) /
             roomMap.transform.fineness,
         ),
@@ -1782,7 +1797,7 @@ export default function Home() {
       1,
       Math.min(
         roomMap.rows,
-        Math.floor(
+        SQUARE_AT(
           ((point.y - roomMap.transform.pad) / roomMap.transform.scale + roomMap.transform.minY) /
             roomMap.transform.fineness,
         ),
@@ -2517,6 +2532,18 @@ export default function Home() {
                     >
                       <i className="legend-dot exit" /> Exit ({roomMap?.exits.length || 0})
                     </button>
+                    <button
+                      type="button"
+                      className={`map-legend-toggle ${showDisconnects ? "" : "disabled"}`}
+                      aria-pressed={showDisconnects}
+                      title="Where our pathing believes walking cannot cross. Players walk these rooms, so every one of these is our model being wrong."
+                      onClick={() => setShowDisconnects((shown) => !shown)}
+                    >
+                      <i className="legend-dot disconnect" /> Unpathable
+                      {" ("}{roomMap?.disconnects?.segments.length || 0}
+                      {roomMap?.disconnects ? ` in ${roomMap.disconnects.regions}` : ""}
+                      {")"}
+                    </button>
                     {showSafeSpots ? (
                       <>
                         {(["holds", "failed", "untested"] as const).map((layer) => (
@@ -2664,6 +2691,13 @@ export default function Home() {
               >
                 <path className="room-passage" d={roomMap.passagePath} />
                 <path className="room-wall" d={roomMap.solidPath} />
+                {showDisconnects && roomMap.disconnects?.segments?.length ? (
+                  <g className="room-disconnects">
+                    {roomMap.disconnects.segments.map((seg, i) => (
+                      <line key={i} x1={seg[0]} y1={seg[1]} x2={seg[2]} y2={seg[3]} />
+                    ))}
+                  </g>
+                ) : null}
                 <g className="room-exits">
                   {showExitLayer ? roomMap.exits.map((exit, index) => (
                     <g

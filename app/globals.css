@@ -489,3 +489,17 @@ button { color: inherit; }
   .strategy-groups { grid-template-columns: 1fr; }
   .intel-panel { display: flex; min-height: 440px; }
 }
+
+/* WHERE OUR PATHING THINKS A WALL IS.
+   Drawn in the danger colour and dashed, deliberately unlike .room-wall: a real wall is
+   part of the world and these are not — players walk these rooms every day. Every segment
+   here is somewhere the router refuses to cross and the world does not, so the layer is a
+   list of our own bugs rather than a feature of the map. Off by default for that reason. */
+.room-disconnects line {
+  stroke: var(--danger);
+  stroke-width: 1.6;
+  stroke-dasharray: 2 1.5;
+  stroke-linecap: round;
+  opacity: .85;
+}
+.legend-dot.disconnect { background: var(--danger); }
