@@ -43,3 +43,6 @@ next-env.d.ts
 
 # generated from the sibling m59-harness map model
 /public/maps/
+
+# TypeScript incremental build state — machine-local, regenerated on every build.
+tsconfig.tsbuildinfo
