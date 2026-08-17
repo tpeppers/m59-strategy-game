@@ -196,6 +196,23 @@ type RoomMapData = {
   // Where the router believes walking cannot get from one side to the other. Not walls in
   // the world — players walk these rooms — but the places our pathing thinks a wall is.
   disconnects?: { regions: number; segments: number[][] } | null;
+  // THE ONE-WAY HALF OF THE SAME MEASUREMENT, and a different question from `disconnects`.
+  // A disconnection line is symmetric: it says two squares are in different regions and
+  // nothing about which side you can get to. These are floods — `unreachable` is what the
+  // room's main floor cannot walk to at all, `noReturn` is what it can walk to and not come
+  // back from. The mover's step graph really is directed (the stock client only blocks a
+  // move that gets CLOSER to a wall, so a square whose centre sits inside a wall's radius
+  // can be left and not entered), so the two are worth telling apart: one is scenery and
+  // the other is a trap.
+  //
+  // Every rectangle here is a claim about our MODEL, which is stricter than the client it
+  // models. Read it as "the router cannot get here", never as "there is no floor".
+  unpathable?: {
+    main_body: number;
+    walkable: number;
+    unreachable: number[][];
+    noReturn: number[][];
+  } | null;
   exits: Array<{
     x: number;
     y: number;
@@ -206,6 +223,15 @@ type RoomMapData = {
     to: string;
     kind: "door" | "edge";
     direction: string | null;
+    // Where this exit's position came from. "named" is a door that carries its own square,
+    // "modelled" is a boundary opening the harness's baked approaches place, and "guessed"
+    // is the middle of the wall — the model publishing no way to stand at that boundary at
+    // all, which is a gap in the model rather than a room without a door.
+    approach?: "named" | "modelled" | "guessed";
+    openings?: number | null;
+    // Which connected region the square you stand on falls in. Two exits with different
+    // regions cannot be walked between; that is what blink is for.
+    region?: number | null;
   }>;
 };
 
@@ -245,6 +271,70 @@ type SafeSpotPosition = {
 };
 
 type SafeSpotLayer = "holds" | "failed" | "untested";
+
+// MAP REVIEW: EVERY ROOM THAT HAS A MAP, WHETHER OR NOT ANYBODY IS STANDING IN IT.
+//
+// The board normally reaches a room by selecting a unit or a location, which means the
+// only rooms you can look at are the ones the fleet happens to be in. That is right for
+// commanding a fleet and useless for reviewing a world: the rooms most worth opening are
+// the ones nothing has walked into, because nothing has found out yet what is wrong with
+// them. Written by scripts/sync-maps.mjs into public/maps/review.json.
+type RoomIndexEntry = {
+  roomNum: number;
+  name: string;
+  rows: number;
+  cols: number;
+  exits: number;
+  regions: number | null;
+  mainBody: number | null;
+  walkable: number | null;
+  unreachable: number;
+  noReturn: number;
+};
+
+// A TAG IS A MEASUREMENT, NOT A VERDICT — see tools/m59-mapreview.mjs in the harness. The
+// same measurement that correctly finds the Cragged Mountains cliff (which really does
+// need `blink`) also flags every doorway in the game, because a door tile is a pocket by
+// design. `pocket-dense` in particular marks where the SAFE SPOTS are and is not a defect.
+type ExceptionalRoom = {
+  room: number;
+  tags: string[];
+  ranks: Record<string, number>;
+  known: string | null;
+  walkable: number | null;
+  main_body: number | null;
+  main_body_share: number | null;
+  pockets: number | null;
+  exits: number;
+  stranded_exits: number;
+  stranded_kinds: Record<string, number>;
+  routes: number;
+};
+
+type MapReview = {
+  ok: boolean;
+  why: string | null;
+  builtAt: string | null;
+  view: string | null;
+  masksAttached: number;
+  rooms: RoomIndexEntry[];
+  exceptional: ExceptionalRoom[];
+};
+
+// What each tag means, in the page rather than only in the tool, so a reviewer can read
+// the list without going and finding the harness. Kept short; the tool has the argument.
+const TAG_NOTES: Record<string, string> = {
+  "stranded-exits":
+    "the body of the room cannot walk to one or more of its own exits. The strongest routing signal here — but a `go` exit anchor IS the door tile, which is a pocket by design, so read the kind first.",
+  fragmented:
+    "less than half the floor is in one connected body. Either a genuinely broken-up room (a cliff, a chasm, ledges) or our collision model being much stricter than the client.",
+  "no-routes":
+    "two or more exits and not one baked route between any pair of them. A room the fleet must cross and, as far as the bake can tell, cannot.",
+  "pocket-dense":
+    "more than one pocket per ten squares of floor. NOT a problem — this is where the safe spots are. Worth reviewing to harvest rather than to fix.",
+  "one-way-body":
+    "routes were found in one direction only. The mover graph is directed, so a room really can be easier to cross one way.",
+};
 
 type DragSelection = {
   pointerId: number;
@@ -555,6 +645,14 @@ export default function Home() {
     failed: true,
     untested: true,
   });
+  // MAP REVIEW MODE. Off by default and deliberately a separate mode rather than another
+  // legend toggle: it changes what the room picker MEANS. Commanding a fleet, a room is
+  // somewhere a unit is; reviewing a world, a room is any of the 264 that have a map, and
+  // the interesting ones are exactly the empty ones nobody has walked into yet.
+  const [reviewMode, setReviewMode] = useState(false);
+  const [review, setReview] = useState<MapReview | null>(null);
+  const [reviewTag, setReviewTag] = useState<string>("");
+  const [showUnreachable, setShowUnreachable] = useState(true);
   const [selectedRoomNum, setSelectedRoomNum] = useState<number | null>(null);
   const [roomMap, setRoomMap] = useState<RoomMapData | null>(null);
   const [roomPositions, setRoomPositions] = useState<RoomPosition[]>([]);
@@ -996,12 +1094,21 @@ export default function Home() {
   const roomSafeSpotMarkers = useMemo(() => {
     if (!roomMap) return [];
     return roomSafeSpots.map((spot) => {
+      // THE WIRE CARRIES A +64 BIAS AND IT HAS TO COME OFF HERE TOO.
+      //
+      // A broker position is KOD fine units with one square of bias in it: the harness reads
+      // the square back as `x / 64 | 0` (m59-parse.mjs) and the client's own conversion is
+      // `(x - 64) * 16` (m59-roo.mjs, protocolToClient). So fine x 96 is the centre of
+      // square 1 at client 512, and multiplying straight through put every exactly-placed
+      // safe spot one full square down-right — the same square that
+      // SQUARE_CENTRE was fixed for, on the branch that fix did not reach. The two branches
+      // below now agree: for a spot at the centre of its square they give the same point.
       const kodToRoomScale = roomMap.transform.fineness / KOD_FINENESS;
       const fineX = spot.exactX != null
-        ? spot.exactX * kodToRoomScale
+        ? (spot.exactX - KOD_FINENESS) * kodToRoomScale
         : SQUARE_CENTRE(spot.col) * roomMap.transform.fineness;
       const fineY = spot.exactY != null
-        ? spot.exactY * kodToRoomScale
+        ? (spot.exactY - KOD_FINENESS) * kodToRoomScale
         : SQUARE_CENTRE(spot.row) * roomMap.transform.fineness;
       return {
         ...spot,
@@ -1010,6 +1117,35 @@ export default function Home() {
       };
     });
   }, [roomMap, roomSafeSpots]);
+
+  // Every tag the bake actually produced, with how many rooms carry it. Derived rather
+  // than listed, so a tag added in the harness turns up here without an edit.
+  const reviewTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const room of review?.exceptional ?? [])
+      for (const tag of room.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [review]);
+
+  // The picker's room list. UNFILTERED IT IS EVERY ROOM WITH A MAP, including the ones no
+  // character has ever been in — that is the whole point of the mode. Filtered by a tag it
+  // is the review queue for that measurement, worst first.
+  const reviewRooms = useMemo(() => {
+    const rooms = review?.rooms ?? [];
+    if (!reviewTag) return rooms;
+    const ranked = (review?.exceptional ?? [])
+      .filter((room) => room.tags.includes(reviewTag))
+      .sort((a, b) => (b.ranks[reviewTag] ?? 0) - (a.ranks[reviewTag] ?? 0));
+    const byNum = new Map(rooms.map((room) => [room.roomNum, room]));
+    return ranked.map((room) => byNum.get(room.room)).filter(Boolean) as RoomIndexEntry[];
+  }, [review, reviewTag]);
+
+  const selectedExceptional = useMemo(
+    () => (review?.exceptional ?? []).find((room) => room.room === selectedRoomNum) ?? null,
+    [review, selectedRoomNum],
+  );
 
   const safeSpotCounts = useMemo(() => {
     const counts: Record<SafeSpotLayer, number> = { holds: 0, failed: 0, untested: 0 };
@@ -1061,6 +1197,27 @@ export default function Home() {
       });
     });
   }, [groups, roomMap, roomPositions]);
+
+  // FETCHED ONCE, AND ONLY WHEN REVIEW MODE IS FIRST TURNED ON. It is 264 rooms of index
+  // plus the tag list; a commander who never opens map review never pays for it.
+  useEffect(() => {
+    if (!reviewMode || review) return;
+    let active = true;
+    fetch("/maps/review.json")
+      .then((response) => {
+        if (!response.ok) throw new Error("no map review data");
+        return response.json() as Promise<MapReview>;
+      })
+      .then((data) => { if (active) setReview(data); })
+      .catch(() => {
+        // ABSENT IS AN ANSWER, NOT A CRASH. `npm run sync:maps` writes this out of the
+        // harness; a checkout that has not run it gets an empty picker that says so
+        // rather than a mode that silently does nothing.
+        if (active) setReview({ ok: false, why: "run npm run sync:maps", builtAt: null,
+                                view: null, masksAttached: 0, rooms: [], exceptional: [] });
+      });
+    return () => { active = false; };
+  }, [reviewMode, review]);
 
   useEffect(() => {
     if (selectedRoomNum == null) {
@@ -2505,6 +2662,46 @@ export default function Home() {
                   <button className="map-scope-button" onClick={() => setSelectedRoomNum(null)}>← Meridian world</button>
                 </>
               )}
+              <label className="topology-toggle review-toggle">
+                <input
+                  type="checkbox"
+                  checked={reviewMode}
+                  onChange={(event) => setReviewMode(event.target.checked)}
+                />
+                <span>Map review</span>
+              </label>
+              {reviewMode ? (
+                <div className="map-review-picker">
+                  <select
+                    value={reviewTag}
+                    onChange={(event) => setReviewTag(event.target.value)}
+                    title="Filter the room list to one measurement. Every tag is a claim about our MODEL of the server, which is stricter than the world — none of them is a verdict."
+                  >
+                    <option value="">All {review?.rooms.length ?? 0} rooms</option>
+                    {reviewTags.map((tag) => (
+                      <option key={tag.name} value={tag.name}>{tag.name} ({tag.count})</option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedRoomNum ?? ""}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setSelectedRoomNum(next === "" ? null : Number(next));
+                    }}
+                  >
+                    <option value="">Pick a room…</option>
+                    {reviewRooms.map((room) => (
+                      <option key={room.roomNum} value={room.roomNum}>
+                        {room.roomNum} · {room.name}
+                        {room.unreachable ? ` · ${room.unreachable} unreachable` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {review && !review.ok ? (
+                    <span className="map-review-note">no tags — {review.why}</span>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="map-legend">
                 <button
                   type="button"
@@ -2544,6 +2741,21 @@ export default function Home() {
                       {roomMap?.disconnects ? ` in ${roomMap.disconnects.regions}` : ""}
                       {")"}
                     </button>
+                    {reviewMode ? (
+                      <button
+                        type="button"
+                        className={`map-legend-toggle ${showUnreachable ? "" : "disabled"}`}
+                        aria-pressed={showUnreachable}
+                        title="Squares the body of the room cannot walk to (solid), and squares it can walk to but not come back from (hatched). A claim about our router, not about the floor: the model is stricter than the client, so most of these are places a person walks."
+                        onClick={() => setShowUnreachable((shown) => !shown)}
+                      >
+                        <i className="legend-dot unreachable" /> Unreachable
+                        {" ("}{roomMap?.unpathable?.unreachable.length || 0}
+                        {roomMap?.unpathable?.noReturn.length
+                          ? ` +${roomMap.unpathable.noReturn.length} one-way` : ""}
+                        {")"}
+                      </button>
+                    ) : null}
                     {showSafeSpots ? (
                       <>
                         {(["holds", "failed", "untested"] as const).map((layer) => (
@@ -2579,6 +2791,39 @@ export default function Home() {
             ) : null}
 
             {mapLoading ? <div className="map-loading">Reading Meridian geometry…</div> : null}
+            {reviewMode && selectedRoomNum != null && roomMap ? (
+              <div className="map-review-panel">
+                <strong>{roomMap.roomNum} · {roomMap.name}</strong>
+                <p>
+                  {roomMap.unpathable
+                    ? `${roomMap.unpathable.main_body} of ${roomMap.unpathable.walkable} squares in one connected body`
+                    : "no collision geometry for this room"}
+                  {roomMap.disconnects ? ` · ${roomMap.disconnects.regions} regions` : ""}
+                  {` · ${roomMap.exits.length} exit(s)`}
+                </p>
+                {selectedExceptional ? (
+                  <ul className="map-review-tags">
+                    {selectedExceptional.tags.map((tag) => (
+                      <li key={tag}><code>{tag}</code> {TAG_NOTES[tag] ?? ""}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="map-review-note">nothing measured about this room stands out.</p>
+                )}
+                {selectedExceptional?.known ? (
+                  <p className="map-review-known">KNOWN: {selectedExceptional.known}</p>
+                ) : null}
+                {/* THE SENTENCE THAT HAS TO STAY. Everything above is our model's opinion,
+                    and the model is stricter than the client it models — the same pass that
+                    correctly finds the Cragged Mountains cliff also flags every doorway in
+                    the game. Reading a tag as a defect is how a bake ends up deleting a door
+                    people walk through every day. */}
+                <p className="map-review-caveat">
+                  These are measurements of our router&rsquo;s model, not of the world. The model is
+                  stricter than the client: most of what is marked here is walked by people daily.
+                </p>
+              </div>
+            ) : null}
             {selectedRoomNum != null && showSafeSpots && (safeSpotsLoading || safeSpotsError) ? (
               <div className={`safe-spot-overlay-status ${safeSpotsError ? "error" : ""}`}>
                 {safeSpotsError || "Reading safe-spot ledger…"}
@@ -2691,6 +2936,20 @@ export default function Home() {
               >
                 <path className="room-passage" d={roomMap.passagePath} />
                 <path className="room-wall" d={roomMap.solidPath} />
+                {/* UNDER the walls and the disconnection lines on purpose: this is ground
+                    colour, and painting it over the geometry would hide the thing a
+                    reviewer is trying to compare it against. */}
+                {reviewMode && showUnreachable && roomMap.unpathable ? (
+                  <g className="room-unreachable">
+                    {roomMap.unpathable.unreachable.map((box, i) => (
+                      <rect key={`u${i}`} x={box[0]} y={box[1]} width={box[2]} height={box[3]} />
+                    ))}
+                    {roomMap.unpathable.noReturn.map((box, i) => (
+                      <rect className="one-way" key={`o${i}`}
+                        x={box[0]} y={box[1]} width={box[2]} height={box[3]} />
+                    ))}
+                  </g>
+                ) : null}
                 {showDisconnects && roomMap.disconnects?.segments?.length ? (
                   <g className="room-disconnects">
                     {roomMap.disconnects.segments.map((seg, i) => (
@@ -2702,7 +2961,7 @@ export default function Home() {
                   {showExitLayer ? roomMap.exits.map((exit, index) => (
                     <g
                       key={`${exit.row}:${exit.col}:${index}`}
-                      className={`room-exit ${exit.kind} ${exit.locked ? "locked" : ""}`}
+                      className={`room-exit ${exit.kind} ${exit.locked ? "locked" : ""} ${exit.approach === "guessed" ? "guessed" : ""}`}
                       onPointerDown={(event) => event.stopPropagation()}
                       onContextMenu={(event) => {
                         event.preventDefault();
@@ -2741,7 +3000,15 @@ export default function Home() {
                       {exit.kind === "edge" ? (
                         <text x={exit.x} y={exit.y + 1.8}>{exit.direction?.slice(0, 1).toUpperCase()}</text>
                       ) : null}
-                      <title>{exit.to} — row {Math.round(exit.row)}, column {Math.round(exit.col)}; right click to traverse</title>
+                      <title>
+                        {exit.to} — stand at row {Math.round(exit.row)}, column {Math.round(exit.col)}
+                        {exit.approach === "guessed"
+                          ? "; POSITION GUESSED — the model publishes no way to stand at this boundary, so this is the middle of the wall"
+                          : exit.openings && exit.openings > 1
+                            ? `; one of ${exit.openings} modelled openings on this wall`
+                            : ""}
+                        {exit.region != null ? `; region ${exit.region}` : ""}; right click to traverse
+                      </title>
                     </g>
                   )) : null}
                 </g>

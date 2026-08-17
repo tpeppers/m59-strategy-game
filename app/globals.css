@@ -309,6 +309,10 @@ button { color: inherit; }
 .room-exit:not(.locked) { cursor: alias; outline: none; }
 .room-exit:not(.locked):hover circle, .room-exit:not(.locked):focus circle { fill: #ffe49b; stroke: white; stroke-width: 2.2; }
 .room-exit text { fill: #171b18; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 3px; font-weight: 900; text-anchor: middle; pointer-events: none; }
+/* A guessed exit is drawn at the middle of the wall because the model publishes no way to
+   stand at that boundary at all. Hollow, so it does not read as a door we know the way to. */
+.room-exits .guessed circle { fill: none; stroke: var(--bronze-bright); stroke-dasharray: 2 1.5; }
+.room-exit.guessed text { fill: var(--bronze-bright); }
 .safe-spot-marker { cursor: help; outline: none; }
 .safe-spot-marker .safe-spot-core, .safe-spot-marker .safe-spot-verification-ring, .safe-spot-marker .safe-spot-failure-mark { vector-effect: non-scaling-stroke; }
 .safe-spot-marker .safe-spot-core { stroke-width: 1.25; }
@@ -503,3 +507,56 @@ button { color: inherit; }
   opacity: .85;
 }
 .legend-dot.disconnect { background: var(--danger); }
+
+/* MAP REVIEW — reading a world rather than commanding a fleet.
+   A separate mode rather than another legend toggle, because it changes what the room
+   picker MEANS: any of the 264 rooms with a map, including the ones no character has ever
+   walked into, which are the ones nothing has found out anything about yet. */
+.map-review-picker { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+.map-review-picker select {
+  max-width: 22rem;
+  font: inherit;
+  padding: .15rem .3rem;
+}
+.map-review-note { opacity: .7; font-size: .85em; }
+
+/* WHAT THE ROUTER CANNOT REACH, AS GROUND COLOUR RATHER THAN AS A WALL.
+   Deliberately a soft fill and not the hard dashed line .room-disconnects uses: a
+   disconnection line is a boundary and is symmetric, this is a claim about which side you
+   can get to. Solid is "the body of the room cannot walk here at all"; hatched is "it can
+   walk here and not come back", which is the one that strands a character. Both are our
+   MODEL, which is stricter than the client — most of what this paints is walked daily. */
+.room-unreachable rect {
+  fill: var(--danger);
+  fill-opacity: .16;
+  stroke: none;
+  pointer-events: none;
+}
+.room-unreachable rect.one-way {
+  fill-opacity: .30;
+  stroke: var(--danger);
+  stroke-width: .5;
+  stroke-dasharray: 1.5 1.5;
+}
+.legend-dot.unreachable { background: var(--danger); opacity: .5; }
+
+.map-review-panel {
+  position: absolute;
+  right: .75rem;
+  bottom: .75rem;
+  max-width: 26rem;
+  padding: .6rem .75rem;
+  border-radius: 8px;
+  font-size: .85rem;
+  line-height: 1.35;
+  background: color-mix(in srgb, var(--panel, #fff) 92%, transparent);
+  border: 1px solid var(--line, #ddd);
+  pointer-events: none;
+  z-index: 5;
+}
+.map-review-panel p { margin: .35rem 0; }
+.map-review-tags { margin: .35rem 0; padding-left: 1rem; }
+.map-review-tags li { margin: .2rem 0; }
+.map-review-tags code { font-weight: 600; }
+.map-review-known { font-weight: 600; }
+.map-review-caveat { opacity: .75; font-style: italic; }
